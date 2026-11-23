@@ -100,7 +100,8 @@ final class VLCPlayer {
 
     init?() {
         setenv("VLC_PLUGIN_PATH", Self.vlcRoot + "/plugins", 1)
-        let args = ["--no-video-title-show", "--no-stats", "--no-snapshot-preview", "--no-osd"]
+        var args = ["--no-video-title-show", "--no-stats", "--no-snapshot-preview", "--no-osd"]
+        if ProcessInfo.processInfo.environment["CRTTV_VLC_VERBOSE"] != nil { args.append("-vv") }   // debugging
         let cargs = args.map { strdup($0) }
         defer { cargs.forEach { free($0) } }
         let ptrs: [UnsafePointer<CChar>?] = cargs.map { UnsafePointer($0) }
@@ -123,7 +124,7 @@ final class VLCPlayer {
     func load(stream s: WebStream) {
         libvlc_media_player_stop(mp)
         guard let m = libvlc_media_new_location(instance, s.video) else { return }
-        if let a = s.audio { libvlc_media_add_option(m, ":input-slave=\(a)") }
+        if let a = s.audio { _ = libvlc_media_slaves_add(m, libvlc_media_slave_type_audio, 4, a) }
         if let ua = s.userAgent { libvlc_media_add_option(m, ":http-user-agent=\(ua)") }
         libvlc_media_add_option(m, ":network-caching=1500")
         start(m)

@@ -102,7 +102,9 @@ struct WebStream: Sendable {
 
         if let parts = json["requested_formats"] as? [[String: Any]], !parts.isEmpty {
             let video = parts.first { ($0["vcodec"] as? String ?? "none") != "none" } ?? parts[0]
-            let audio = parts.first { ($0["vcodec"] as? String ?? "") == "none" && ($0["acodec"] as? String ?? "none") != "none" }
+            // The audio part is the one without video. Don't require "acodec": YouTube's HLS
+            // audio streams leave it empty, and skipping them meant silent playback.
+            let audio = parts.first { ($0["vcodec"] as? String ?? "none") == "none" && ($0["url"] as? String) != (video["url"] as? String) }
             if let v = video["url"] as? String {
                 return .success(WebStream(video: v, audio: audio?["url"] as? String, title: title,
                                           userAgent: agent(video), isLive: live))
