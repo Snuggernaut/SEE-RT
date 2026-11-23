@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 /// volume, power, and what the on-screen display shows.
 @MainActor
 final class TVController {
-    static let videoExtensions: Set<String> = [
+    nonisolated static let videoExtensions: Set<String> = [
         "mkv", "mp4", "m4v", "mov", "avi", "webm", "wmv", "flv", "mpg", "mpeg",
         "ts", "m2ts", "mts", "3gp", "ogv", "vob", "divx", "xvid", "rm", "rmvb",
     ]
@@ -26,6 +26,10 @@ final class TVController {
     private var statusUntil: CFTimeInterval = 0
     private var statusText = ""
     private var timer: Timer?
+    /// Web links: the page's title (from yt-dlp) and whether we're still looking up the stream.
+    private var webTitles: [URL: String] = [:]
+    private(set) var tuning = false
+    private var tuneToken = 0
 
     /// Picture controls, 0...100 with 50 = neutral. Remembered between launches.
     private(set) var brightness = UserDefaults.standard.object(forKey: "brightness") as? Int ?? 50
@@ -64,6 +68,11 @@ final class TVController {
 
     private var now: CFTimeInterval { CACurrentMediaTime() }
     private var hasMedia: Bool { index >= 0 && index < playlist.count }
+    private var currentTitle: String? {
+        guard hasMedia else { return nil }
+        let u = playlist[index]
+        return u.isFileURL ? u.deletingPathExtension().lastPathComponent : webTitles[u] ?? u.host ?? "STREAM"
+    }
     var isPoweredOn: Bool { renderer.isPoweredOn }
 
     // MARK: Opening
@@ -93,6 +102,44 @@ final class TVController {
         playCurrent()
     }
 
+    /// Plays a web link (YouTube etc.) as its own channel.
+    func openWeb(_ url: URL) {
+        playlist = [url]
+        index = 0
+        playCurrent()
+    }
+
+    /// Asks for a link, pre-filled from the clipboard when it holds one.
+    func openURLPanel() {
+        let a = NSAlert()
+        a.messageText = "Open URL"
+        a.informativeText = "Paste a link to a YouTube video, another video site, or a video file on the web."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
+        field.placeholderString = "https://www.youtube.com/watch?v=…"
+        if let clip = NSPasteboard.general.string(forType: .string), let u = WebStream.url(from: clip) {
+            field.stringValue = u.absoluteString
+        }
+        a.accessoryView = field
+        a.addButton(withTitle: "Play")
+        a.addButton(withTitle: "Cancel")
+        a.window.initialFirstResponder = field
+        guard a.runModal() == .alertFirstButtonReturn else { return }
+        if let u = WebStream.url(from: field.stringValue) { openWeb(u) } else { NSSound.beep() }
+    }
+
+    /// ⌘V on the TV: play a link from the clipboard, or a copied video file.
+    func pasteFromClipboard() {
+        let pb = NSPasteboard.general
+        if let files = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           let f = files.first {
+            open(f)
+        } else if let text = pb.string(forType: .string), let u = WebStream.url(from: text) {
+            openWeb(u)
+        } else {
+            NSSound.beep()
+        }
+    }
+
     private func playCurrent() {
         guard hasMedia else { return }
         stopScan()
@@ -100,16 +147,64 @@ final class TVController {
         guard let player else { showNoSignal(); return }
         noSignal = false
         statusUntil = 0
+        tuneToken += 1
+        tuning = false
         renderer.resetVideo()
-        renderer.source = .video
-        renderer.burstStatic()
-        player.load(playlist[index])
+        let item = playlist[index]
+        if item.isFileURL {
+            renderer.source = .video
+            renderer.burstStatic()
+            player.load(item)
+        } else {
+            tune(item, player)
+        }
         channelUntil = now + 3.5
         bodyView?.needsDisplay = true
         refreshOSD()
     }
 
+    /// Snow while yt-dlp looks up the stream, then the picture fades in.
+    private func tune(_ page: URL, _ player: VLCPlayer) {
+        player.stop()
+        tuning = true
+        renderer.source = .snow
+        let token = tuneToken
+        Task { @MainActor [weak self] in
+            let result = await WebStream.resolve(page)
+            guard let self, token == self.tuneToken else { return }   // user changed channel meanwhile
+            self.tuning = false
+            switch result {
+            case .success(let s):
+                self.webTitles[page] = s.title
+                self.renderer.source = .video
+                self.renderer.burstStatic()
+                player.load(stream: s)
+                self.channelUntil = self.now + 4
+            case .failure(let f):
+                self.showNoSignal()
+                self.reportWebFailure(f)
+            }
+            self.refreshOSD()
+        }
+    }
+
+    private func reportWebFailure(_ f: WebStream.Failure) {
+        let a = NSAlert()
+        switch f {
+        case .notInstalled:
+            a.messageText = "SEE-RT needs yt-dlp to play web videos"
+            a.informativeText = "yt-dlp is a free tool that finds the video stream behind a YouTube (or other site) link. "
+                + WebStream.installHint
+        case .failed(let msg):
+            a.messageText = "Couldn't tune in to that link"
+            a.informativeText = msg + "\n\nIf YouTube links that used to work have stopped, update yt-dlp by running:  brew upgrade yt-dlp"
+        }
+        if let w = bodyView?.window { a.beginSheetModal(for: w) } else { a.runModal() }
+    }
+
     private func goIdle() {
+        tuneToken += 1
+        tuning = false
         stopScan()
         player?.stop()
         renderer.resetVideo()
@@ -147,6 +242,7 @@ final class TVController {
     func togglePlay() {
         guard isPoweredOn else { togglePower(); return }
         guard hasMedia, let player else { openPanel(); return }
+        if tuning { return }
         if renderer.source != .video { playCurrent(); return }
         if scan != .none {
             stopScan()
@@ -220,7 +316,7 @@ final class TVController {
     // MARK: Scanning
 
     func toggleScan(_ mode: ScanMode) {
-        guard isPoweredOn, hasMedia, renderer.source == .video, let player, mode != .none else { return }
+        guard isPoweredOn, hasMedia, renderer.source == .video, let player, player.isSeekable, mode != .none else { return }
         if scan == mode {
             stopScan()
             statusText = "PLAY"; statusUntil = now + 2
@@ -414,9 +510,10 @@ final class TVController {
         else if t < statusUntil { s.topLeft = statusText }
         if muted { if s.topLeft == nil { s.topLeft = "MUTE" } else { s.topLeft2 = "MUTE" } }
         if noSignal { s.center = "NO SIGNAL" }
-        if hasMedia, t < channelUntil {
-            s.channel = String(format: "CH %02d", index + 1)
-            s.title = playlist[index].deletingPathExtension().lastPathComponent
+        if tuning { s.center = "TUNING…"; s.channel = "WEB"; s.title = playlist[index].host }
+        else if hasMedia, t < channelUntil {
+            s.channel = playlist[index].isFileURL ? String(format: "CH %02d", index + 1) : "WEB"
+            s.title = currentTitle
         }
         if t < volumeUntil {
             s.volume = muted ? 0 : volume

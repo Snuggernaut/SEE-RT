@@ -181,7 +181,9 @@ fragment float4 crt_fragment(VOut in [[stage_in]],
 
         // Snow
         float n = hash12(floor(fc / 2.0) + floor(u.time * 60.0) * 17.0);
-        col = mix(col, float3(n * 0.9), u.staticAmount);
+        // the TV's own on-screen text (TUNING…, NO SIGNAL) stays readable through the snow
+        float osdA = osd.sample(os, puv).a;
+        col = mix(col, float3(n * 0.9), u.staticAmount * (1.0 - osdA));
 
         // Hum bar, flicker, grain
         col *= 1.0 - 0.035 * (0.5 + 0.5 * sin((puv.y + u.time * 0.11) * 6.2831));

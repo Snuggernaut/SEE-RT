@@ -16,6 +16,7 @@ SEE-RT plays MKV, MP4 and most other video files inside a window drawn as a clas
 - **Your own brand name** on the front of the set.
 - **Brightness and saturation controls**, full screen, resizable window, power-off animation, and snapshots saved to your Desktop.
 - **Plays almost anything:** MKV, MP4, MOV, AVI, WebM and more, using VLC's playback engine, which is built into the app.
+- **Web links (optional).** Paste a link to a YouTube video, or one from most other video sites, and it plays on the TV. This needs [yt-dlp](https://github.com/yt-dlp/yt-dlp), installed separately (see [Playing web links](#playing-web-links)).
 
 | Living Room '98 | Wood-Grain Console '82 |
 |:---:|:---:|
@@ -59,8 +60,28 @@ Click **OPEN** on the TV, press **⌘O**, or drag a video file onto the TV. You 
 | ⌘1 to ⌘4, ⌘= / ⌘−, ⌘0 | Window size: presets, bigger / smaller, fit to screen |
 | ⌥⌘P | Picture adjustments (brightness, saturation) |
 | ⌘S | Save a snapshot to the Desktop |
+| ⇧⌘O, ⌘V | Open a web link / play a copied link |
 
 Drag the TV to move it, or drag its edges to resize it.
+
+### Playing web links
+
+SEE-RT can play videos from YouTube and most other video sites using [yt-dlp](https://github.com/yt-dlp/yt-dlp), a free tool that finds the video stream behind a page link. It isn't built into SEE-RT, because sites change often and yt-dlp updates quickly to keep up. Install it with [Homebrew](https://brew.sh):
+
+```bash
+brew install yt-dlp
+```
+
+Then do one of these:
+- Choose **File ▸ Open URL…** (**⇧⌘O**) and paste the link.
+- Copy a link and press **⌘V** on the TV.
+- Drag a link from your web browser onto the TV.
+
+The screen shows snow and **TUNING…** for a few seconds while the link is looked up. Web videos play at up to 720p, which is more than the CRT picture can show. Private, members-only and DRM-protected videos won't play. If links that used to work stop working, update yt-dlp with `brew upgrade yt-dlp`.
+
+Links straight to a video file or stream (for example ending in `.mp4` or `.m3u8`) play without yt-dlp.
+
+Please respect the terms of the sites you watch.
 
 **Menus:**
 - **Picture:** brightness and saturation, Picture Mode, Scan Mode, Phosphor Persistence, scanline density, curved glass and zoom.
@@ -90,6 +111,7 @@ open "build/SEE-RT.app"
 | `Sources/TVBodyView.swift` | Cabinet view, mouse and keyboard handling |
 | `Sources/TVController.swift` | Playlist, power, volume, scanning, picture settings and OSD state |
 | `Sources/OSD.swift` | The green on-screen display |
+| `Sources/WebStream.swift` | Looks up web links with yt-dlp |
 | `Tools/MakeIcon.swift` | Draws the app icon |
 
 ## Licence

@@ -97,6 +97,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                             Cabinet.brand = String(cmd.dropFirst(6)).replacingOccurrences(of: "_", with: " ")
                             self.window.contentView?.needsDisplay = true
                         }
+                        if cmd.hasPrefix("url="), let u = WebStream.url(from: String(cmd.dropFirst(4))) { c.openWeb(u) }
+                        if cmd.hasPrefix("seek="), let v = Double(cmd.dropFirst(5)) { c.seek(by: v) }
                         if cmd.hasPrefix("width="), let w = Double(cmd.dropFirst(6)) { self.setWidth(CGFloat(w)) }
                     }
                 }
@@ -164,10 +166,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         let file = NSMenu(title: "File")
         file.addItem(item("Open…", #selector(openFile), "o"))
+        let openURL = item("Open URL…", #selector(openURL), "O")   // ⇧⌘O
+        file.addItem(openURL)
         file.addItem(item("Save Snapshot to Desktop", #selector(saveSnapshot), "s"))
         file.addItem(.separator())
         file.addItem(item("Close", #selector(closeWindow), "w"))
         addSubmenu(file, to: main, title: "File")
+
+        // Standard Edit menu (nil targets): makes ⌘V work in text fields, and on the TV
+        // it reaches TVBodyView.paste(_:), which plays a copied link or video file.
+        let edit = NSMenu(title: "Edit")
+        edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        addSubmenu(edit, to: main, title: "Edit")
 
         let play = NSMenu(title: "Playback")
         play.addItem(item("Play / Pause   (Space)", #selector(playPause), ""))
@@ -295,6 +308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func openFile() { controller?.openPanel() }
+    @objc private func openURL() { controller?.openURLPanel() }
     @objc private func closeWindow() { window.close() }
     @objc private func playPause() { controller?.togglePlay() }
     @objc private func channelUp() { controller?.channel(1) }

@@ -116,12 +116,29 @@ final class VLCPlayer {
     func load(_ url: URL) {
         libvlc_media_player_stop(mp)
         guard let m = libvlc_media_new_path(instance, url.path) else { return }
+        start(m)
+    }
+
+    /// Plays a network stream; `audio` is a separate audio track played in sync (YouTube splits them).
+    func load(stream s: WebStream) {
+        libvlc_media_player_stop(mp)
+        guard let m = libvlc_media_new_location(instance, s.video) else { return }
+        if let a = s.audio { libvlc_media_add_option(m, ":input-slave=\(a)") }
+        if let ua = s.userAgent { libvlc_media_add_option(m, ":http-user-agent=\(ua)") }
+        libvlc_media_add_option(m, ":network-caching=1500")
+        start(m)
+    }
+
+    private func start(_ m: OpaquePointer) {
         libvlc_media_player_set_media(mp, m)
         if let media { libvlc_media_release(media) }
         media = m
         sink.discardPending()
         libvlc_media_player_play(mp)
     }
+
+    /// Can this media be seeked? False for live streams.
+    var isSeekable: Bool { libvlc_media_player_is_seekable(mp) != 0 }
 
     func play() { libvlc_media_player_play(mp) }
     func setPaused(_ paused: Bool) { libvlc_media_player_set_pause(mp, paused ? 1 : 0) }

@@ -82,7 +82,7 @@ final class TVBodyView: NSView {
         crtView.wantsLayer = true
         crtView.layer?.masksToBounds = true
         addSubview(crtView)
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes([.fileURL, .URL, .string])
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -259,11 +259,22 @@ final class TVBodyView: NSView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { .copy }
 
+    /// Video files from the Finder, or links dragged from a web browser.
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let urls = sender.draggingPasteboard.readObjects(
-                forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
-              let url = urls.first else { return false }
-        controller?.open(url)
+        let pb = sender.draggingPasteboard
+        if let files = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           let url = files.first {
+            controller?.open(url)
+            return true
+        }
+        let links = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] ?? []
+        guard let link = links.first.flatMap({ WebStream.url(from: $0.absoluteString) })
+                ?? pb.string(forType: .string).flatMap(WebStream.url(from:)) else { return false }
+        controller?.openWeb(link)
         return true
     }
+
+    // MARK: Paste (⌘V)
+
+    @objc func paste(_ sender: Any?) { controller?.pasteFromClipboard() }
 }
