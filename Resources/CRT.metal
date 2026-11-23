@@ -26,12 +26,16 @@ struct Uniforms {
     float grain;          // random noise amount
     float interlace;      // 1 = draw only one field (odd or even lines) per frame
     float field;          // which field this frame draws: 0 or 1
+    float picContrast;    // user contrast control, 1 = neutral
+    float glass;          // 1 = realistic glass: recessed edge shadow and room reflections
 };
 
 // The set's BRIGHT / COLOR knobs: applied to the video only, not the on-screen display.
 static float3 adjust(float3 c, constant Uniforms& u) {
     float l = dot(c, float3(0.299, 0.587, 0.114));
-    return max(mix(float3(l), c, u.picSaturation) * u.picBrightness, 0.0);
+    c = mix(float3(l), c, u.picSaturation);
+    c = (c - 0.5) * u.picContrast + 0.5;   // stretch or flatten tones around mid-grey
+    return max(c * u.picBrightness, 0.0);
 }
 
 struct VOut {
@@ -203,6 +207,25 @@ fragment float4 crt_fragment(VOut in [[stage_in]],
     float2 rp = (uv - float2(0.27, 0.12)) * float2(1.0, 1.7);
     col += (1.0 - smoothstep(0.0, 0.6, length(rp))) * 0.05;
     col += smoothstep(0.85, 1.0, 1.0 - uv.y) * 0.015;
+
+    // Realistic glass: the tube sits recessed behind the bezel (shadow along the top and left
+    // edges, a faint lit lip at the bottom) and the glass reflects a soft window and a curved
+    // highlight. Reflections show most on dark pictures, like real glass.
+    if (u.glass > 0.5) {
+        float aspect = u.viewSize.x / max(u.viewSize.y, 1.0);
+        float lum = dot(saturate(col), float3(0.299, 0.587, 0.114));
+        float show = 1.0 - 0.65 * lum;
+        col *= 1.0 - 0.55 * (1.0 - smoothstep(0.0, 0.055, uv.y));
+        col *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, 0.045 / aspect, uv.x));
+        col += 0.035 * smoothstep(0.975, 1.0, uv.y);
+        float diag = dot(uv * float2(aspect, 1.0), normalize(float2(1.0, 0.8)));
+        col += 0.075 * (1.0 - smoothstep(0.0, 0.55, diag)) * show;
+        float2 wq = abs((uv - float2(0.81, 0.19)) * float2(aspect, 1.0)) - float2(0.13, 0.11);
+        float win = 1.0 - smoothstep(0.0, 0.07, length(max(wq, 0.0)) + min(max(wq.x, wq.y), 0.0));
+        col += 0.05 * win * show;
+        float arc = abs(length((uv - float2(0.56, 1.62)) * float2(aspect, 1.0)) - 1.50);
+        col += 0.04 * exp(-arc * arc / 0.00035) * (1.0 - smoothstep(0.25, 0.95, uv.x)) * show;
+    }
 
     // Outside the bulged glass: dark tube surround
     col = mix(float3(0.01), col, tube);

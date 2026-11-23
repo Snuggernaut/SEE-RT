@@ -13,8 +13,9 @@ SEE-RT plays MKV, MP4 and most other video files inside a window drawn as a clas
 - **VCR controls.** Rewind and fast-forward with tracking-noise bands, wobble and dropouts, and a pause that shows tape noise. The green on-screen display (OSD) shows channel, volume, time and progress.
 - **Channels.** Every video in the same folder as the one you open becomes a channel.
 - **Four cabinets, each in several colours.** Click their buttons, dials and knobs to work the TV.
+- **Realistic lighting** (Cabinet ▸ Realistic Lighting): lit and textured plastic, recessed glass with soft reflections, a faint glow from the picture on the bezel, and a shadow beneath the set. Turn it off for the original flat look.
 - **Your own brand name** on the front of the set.
-- **Brightness and saturation controls**, full screen, resizable window, power-off animation, and snapshots saved to your Desktop.
+- **Brightness, contrast and saturation controls**, full screen, resizable window, power-off animation, and snapshots saved to your Desktop.
 - **Plays almost anything:** MKV, MP4, MOV, AVI, WebM and more, using VLC's playback engine, which is built into the app.
 - **Web links (optional).** Paste a link to a YouTube video, or one from most other video sites, and it plays on the TV. This needs [yt-dlp](https://github.com/yt-dlp/yt-dlp), installed separately (see [Playing web links](#playing-web-links)).
 
@@ -58,7 +59,7 @@ Click **OPEN** on the TV, press **⌘O**, or drag a video file onto the TV. You 
 | Z | Zoom to fill the 4:3 screen |
 | ⌃⌘F, Esc | Enter / exit full screen |
 | ⌘1 to ⌘4, ⌘= / ⌘−, ⌘0 | Window size: presets, bigger / smaller, fit to screen |
-| ⌥⌘P | Picture adjustments (brightness, saturation) |
+| ⌥⌘P | Picture adjustments (brightness, contrast, saturation) |
 | ⌘S | Save a snapshot to the Desktop |
 | ⇧⌘O, ⌘V | Open a web link / play a copied link |
 
@@ -84,8 +85,8 @@ Links straight to a video file or stream (for example ending in `.mp4` or `.m3u8
 Please respect the terms of the sites you watch.
 
 **Menus:**
-- **Picture:** brightness and saturation, Picture Mode, Scan Mode, Phosphor Persistence, scanline density, curved glass and zoom.
-- **Cabinet:** skin, colour and brand name.
+- **Picture:** brightness, contrast and saturation, Picture Mode, Scan Mode, Phosphor Persistence, scanline density, curved glass and zoom.
+- **Cabinet:** skin, colour, Realistic Lighting and brand name.
 
 All settings are remembered between launches.
 
@@ -108,6 +109,7 @@ open "build/SEE-RT.app"
 | `Sources/CRTRenderer.swift` | Metal renderer: CRT pass, then a phosphor-persistence pass |
 | `Resources/CRT.metal` | The CRT and VHS shader, compiled when the app starts, so you can edit it inside the app bundle and relaunch |
 | `Sources/Skins.swift` | The four cabinet designs and their colours |
+| `Sources/CabinetLighting.swift` | Realistic lighting, texture, shadow and glow layers for the cabinets |
 | `Sources/TVBodyView.swift` | Cabinet view, mouse and keyboard handling |
 | `Sources/TVController.swift` | Playlist, power, volume, scanning, picture settings and OSD state |
 | `Sources/OSD.swift` | The green on-screen display |

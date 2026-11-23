@@ -26,6 +26,8 @@ struct CRTUniforms {
     var grain: Float = 0.03
     var interlace: Float = 0
     var field: Float = 0
+    var picContrast: Float = 1
+    var glass: Float = 0
 }
 
 @MainActor
@@ -63,6 +65,9 @@ final class CRTRenderer: NSObject, MTKViewDelegate {
     var tapeMode: TapeMode = .normal
     var picBrightness: Float = 1
     var picSaturation: Float = 1
+    var picContrast: Float = 1
+    /// Realistic glass (recess shadow and reflections).
+    var realisticGlass = true
     private var vhsLevel: Float = 0
     private var glitchUntil: CFTimeInterval = 0
     var source: Source = .bars
@@ -269,6 +274,24 @@ final class CRTRenderer: NSObject, MTKViewDelegate {
         return ctx.makeImage()
     }
 
+    /// Roughly how much light the picture gives off, as linear-ish RGB 0...1 (nil when the tube is dark).
+    /// Read from the 1×1 mip level the GPU already builds, so it costs almost nothing.
+    /// Used for the faint glow the picture casts on the bezel.
+    func averageLight() -> SIMD3<Float>? {
+        guard isPoweredOn else { return nil }
+        if source == .snow || staticUntil > CACurrentMediaTime() { return SIMD3(repeating: 0.42) }
+        let tex: MTLTexture? = source == .bars ? barsTexture : videoTexture
+        guard let tex, tex.mipmapLevelCount > 1 else { return nil }
+        let level = tex.mipmapLevelCount - 1
+        var px = [UInt8](repeating: 0, count: 4)
+        tex.getBytes(&px, bytesPerRow: 4, from: MTLRegionMake2D(0, 0, 1, 1), mipmapLevel: level)
+        // BGRA → RGB, with the user's picture controls applied roughly
+        var c = SIMD3(Float(px[2]), Float(px[1]), Float(px[0])) / 255
+        let l = (c * SIMD3(0.299, 0.587, 0.114)).sum()
+        c = SIMD3(repeating: l) + (c - SIMD3(repeating: l)) * picSaturation
+        return simd_clamp(c * picBrightness, SIMD3(repeating: 0), SIMD3(repeating: 1))
+    }
+
     private func encodeFrame(_ cb: MTLCommandBuffer, _ rpd: MTLRenderPassDescriptor, size: CGSize) {
         let now = CACurrentMediaTime()
 
@@ -324,6 +347,8 @@ final class CRTRenderer: NSObject, MTKViewDelegate {
         u.vhs = vhsLevel < 0.002 ? 0 : vhsLevel
         u.picBrightness = picBrightness
         u.picSaturation = picSaturation
+        u.picContrast = picContrast
+        u.glass = realisticGlass ? 1 : 0
         u.glow = glow
         u.grain = grain
         u.interlace = interlaced ? 1 : 0

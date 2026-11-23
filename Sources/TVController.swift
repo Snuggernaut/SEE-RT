@@ -34,6 +34,7 @@ final class TVController {
     /// Picture controls, 0...100 with 50 = neutral. Remembered between launches.
     private(set) var brightness = UserDefaults.standard.object(forKey: "brightness") as? Int ?? 50
     private(set) var saturation = UserDefaults.standard.object(forKey: "saturation") as? Int ?? 50
+    private(set) var contrast = UserDefaults.standard.object(forKey: "contrast") as? Int ?? 50
     private var adjustUntil: CFTimeInterval = 0
 
     /// Tube "look": scan mode, phosphor persistence and the worn-out extras. Remembered between launches.
@@ -381,7 +382,14 @@ final class TVController {
         showAdjustment("SATURATION")
     }
 
+    func setContrast(_ value: Int) {
+        contrast = min(100, max(0, value))
+        UserDefaults.standard.set(contrast, forKey: "contrast")
+        showAdjustment("CONTRAST")
+    }
+
     func resetPicture() {
+        setContrast(50)
         setSaturation(50)
         setBrightness(50)
     }
@@ -448,6 +456,7 @@ final class TVController {
     private func applyPicture() {
         renderer.picBrightness = 0.4 + Float(brightness) / 100 * 1.2   // 0.4x ... 1.6x
         renderer.picSaturation = Float(saturation) / 50                // 0 (B&W) ... 2x
+        renderer.picContrast = 0.4 + Float(contrast) / 100 * 1.2       // 0.4x (flat) ... 1.6x (punchy)
     }
 
     // Saved as soon as they change, restored at launch.
@@ -474,6 +483,7 @@ final class TVController {
     // MARK: Periodic update
 
     private func tick() {
+        bodyView?.updateGlow(renderer.averageLight())
         if let player, renderer.source == .video, isPoweredOn {
             let st = player.state
             let isWeb = hasMedia && !playlist[index].isFileURL
@@ -524,7 +534,7 @@ final class TVController {
         if t < volumeUntil {
             s.volume = muted ? 0 : volume
         } else if t < adjustUntil {
-            s.bar = adjustLabel == "SATURATION" ? saturation : brightness
+            s.bar = adjustLabel == "SATURATION" ? saturation : adjustLabel == "CONTRAST" ? contrast : brightness
             s.barLabel = adjustLabel
         } else if hasMedia, renderer.source == .video, t < seekUntil || paused || scan != .none, let player, player.lengthMs > 0 {
             s.progress = Double(player.timeMs) / Double(player.lengthMs)

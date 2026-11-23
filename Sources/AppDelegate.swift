@@ -21,7 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                           backing: .buffered, defer: false)
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = true
+        window.hasShadow = !body.realistic   // realistic mode draws its own shadow
         window.contentAspectRatio = d
         window.minSize = NSSize(width: 420 * d.width / 1000, height: 420 * d.height / 1000)
         window.isReleasedWhenClosed = false
@@ -40,6 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         self.controller = controller
         body.controller = controller
         controller.bodyView = body
+        renderer.realisticGlass = body.realistic
+        body.onRealisticChange = { [weak self] in
+            guard let self, !self.isFullScreen else { return }
+            self.window.hasShadow = !(self.body?.realistic ?? false)
+            self.window.invalidateShadow()
+        }
         window.contentView = body
         buildMenu()
         restoreWindowFrame()
@@ -93,6 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         if cmd.hasPrefix("persist="), let v = Int(cmd.dropFirst(8)), let p = TVController.Persistence(rawValue: v) { c.setPersistence(p) }
                         if cmd.hasPrefix("bright="), let v = Int(cmd.dropFirst(7)) { c.setBrightness(v) }
                         if cmd.hasPrefix("sat="), let v = Int(cmd.dropFirst(4)) { c.setSaturation(v) }
+                        if cmd.hasPrefix("con="), let v = Int(cmd.dropFirst(4)) { c.setContrast(v) }
+                        if cmd.hasPrefix("real="), let v = Int(cmd.dropFirst(5)) { self.body?.realistic = v != 0 }
+                        if cmd.hasPrefix("fill="), let v = Int(cmd.dropFirst(5)) { c.fillScreen = v != 0 }
                         if cmd.hasPrefix("brand=") {
                             Cabinet.brand = String(cmd.dropFirst(6)).replacingOccurrences(of: "_", with: " ")
                             self.window.contentView?.needsDisplay = true
@@ -211,6 +220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         pic.items.last?.keyEquivalentModifierMask = [.command, .option, .shift]
         pic.addItem(item("Saturation Down", #selector(satDown), "{"))
         pic.items.last?.keyEquivalentModifierMask = [.command, .option, .shift]
+        pic.addItem(item("Contrast Up", #selector(contrastUp), "."))
+        pic.items.last?.keyEquivalentModifierMask = [.command, .option]
+        pic.addItem(item("Contrast Down", #selector(contrastDown), ","))
+        pic.items.last?.keyEquivalentModifierMask = [.command, .option]
         pic.addItem(item("Reset Picture", #selector(resetPicture), ""))
         pic.addItem(.separator())
         pic.addItem(submenu("Picture Mode", [("Clean", 0), ("Authentic (480i)", 1), ("Worn Out", 2)], #selector(setMode(_:))))
@@ -300,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(chooseSkin(_:)): item.state = Skins.all.firstIndex { $0.id == body?.skin.id } == item.tag ? .on : .off
         case #selector(chooseFinish(_:)): item.state = body?.finishIndex == item.tag ? .on : .off
         case #selector(toggleCabinet): item.state = (body?.showCabinet ?? true) ? .on : .off
+        case #selector(toggleRealistic): item.state = (body?.realistic ?? true) ? .on : .off
         case #selector(setSize(_:)), #selector(bigger), #selector(smaller), #selector(fitToScreen), #selector(minimize):
             return !isFullScreen
         default: break
@@ -335,6 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         cabinetMenu.addItem(submenu("Skin", Skins.all.enumerated().map { ($1.name, $0) }, #selector(chooseSkin(_:))))
         let finishes = body?.skin.finishes ?? []
         cabinetMenu.addItem(submenu("Color", finishes.enumerated().map { ($1.name, $0) }, #selector(chooseFinish(_:))))
+        cabinetMenu.addItem(item("Realistic Lighting", #selector(toggleRealistic), ""))
         cabinetMenu.addItem(.separator())
         cabinetMenu.addItem(item("Brand Name…", #selector(changeBrand), ""))
     }
@@ -346,15 +361,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func chooseFinish(_ s: NSMenuItem) { body?.setFinish(s.tag) }
+    @objc private func toggleRealistic() { body?.realistic.toggle() }
 
     /// New skins have different proportions: keep the picture the same size on screen.
     private func adoptSkin(from old: TVSkin, to new: TVSkin) {
-        let d = new.design
+        let d = TVBodyView.paddedSize(new), od = TVBodyView.paddedSize(old)
         window.contentAspectRatio = d
         window.minSize = NSSize(width: 420 * d.width / 1000, height: 420 * d.height / 1000)
         guard !isFullScreen else { return }
-        let oldPicture = window.frame.width * old.screenRect.width / old.design.width
-        setWidth(oldPicture * new.design.width / new.screenRect.width)
+        let oldPicture = window.frame.width * old.screenRect.width / od.width
+        setWidth(oldPicture * d.width / new.screenRect.width)
     }
 
     private func saveWindowFrame() {
@@ -397,7 +413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             body.fullScreen = false
             window.backgroundColor = .clear
             window.isOpaque = false
-            window.hasShadow = true
+            window.hasShadow = !body.realistic
             window.setFrame(frame, display: true)
         } else {
             guard let screen = window.screen ?? NSScreen.main else { return }
@@ -431,26 +447,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var adjustPanel: NSPanel?
     private var brightSlider: NSSlider?
     private var satSlider: NSSlider?
+    private var contrastSlider: NSSlider?
 
     @objc private func brightUp() { controller?.setBrightness((controller?.brightness ?? 50) + 5); syncSliders() }
     @objc private func brightDown() { controller?.setBrightness((controller?.brightness ?? 50) - 5); syncSliders() }
     @objc private func satUp() { controller?.setSaturation((controller?.saturation ?? 50) + 5); syncSliders() }
     @objc private func satDown() { controller?.setSaturation((controller?.saturation ?? 50) - 5); syncSliders() }
+    @objc private func contrastUp() { controller?.setContrast((controller?.contrast ?? 50) + 5); syncSliders() }
+    @objc private func contrastDown() { controller?.setContrast((controller?.contrast ?? 50) - 5); syncSliders() }
     @objc private func resetPicture() { controller?.resetPicture(); syncSliders() }
 
     private func syncSliders() {
         guard let c = controller else { return }
         brightSlider?.integerValue = c.brightness
         satSlider?.integerValue = c.saturation
+        contrastSlider?.integerValue = c.contrast
     }
 
     @objc private func sliderMoved(_ s: NSSlider) {
-        if s === brightSlider { controller?.setBrightness(s.integerValue) } else { controller?.setSaturation(s.integerValue) }
+        if s === brightSlider { controller?.setBrightness(s.integerValue) }
+        else if s === contrastSlider { controller?.setContrast(s.integerValue) }
+        else { controller?.setSaturation(s.integerValue) }
     }
 
     @objc private func showAdjustments() {
         if adjustPanel == nil {
-            let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 140),
+            let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
                                 styleMask: [.titled, .closable, .utilityWindow, .hudWindow],
                                 backing: .buffered, defer: false)
             panel.title = "Picture"
@@ -468,17 +490,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return (r, slider)
             }
             let (r1, b) = row("Brightness")
+            let (r3, ct) = row("Contrast")
             let (r2, s) = row("Saturation")
             brightSlider = b
             satSlider = s
+            contrastSlider = ct
             let reset = NSButton(title: "Reset", target: self, action: #selector(resetPicture))
-            let stack = NSStackView(views: [r1, r2, reset])
+            let stack = NSStackView(views: [r1, r3, r2, reset])
             stack.orientation = .vertical
             stack.alignment = .leading
             stack.spacing = 12
             stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
             r1.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32).isActive = true
             r2.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32).isActive = true
+            r3.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32).isActive = true
             panel.contentView = stack
             let f = window.frame
             panel.setFrameTopLeftPoint(NSPoint(x: f.maxX + 12, y: f.maxY - 40))

@@ -38,7 +38,27 @@ final class TVBodyView: NSView {
     /// Current cabinet design and colour; each skin remembers its own colour.
     private(set) var skin: TVSkin = Skins.named(UserDefaults.standard.string(forKey: "skin"))
     private(set) var finishIndex = 0
-    var design: NSSize { skin.design }
+    /// The view's design size: the cabinet plus the transparent margin its shadow falls into.
+    var design: NSSize { Self.paddedSize(skin) }
+    static func paddedSize(_ s: TVSkin) -> NSSize {
+        let p = CabinetLighting.pad
+        return NSSize(width: s.design.width + p.left + p.right, height: s.design.height + p.top + p.bottom)
+    }
+
+    /// Lit, textured cabinet with a drawn shadow, a faint glow from the picture on the bezel,
+    /// and realistic glass. Off = the original flat look with the system window shadow.
+    var realistic = UserDefaults.standard.object(forKey: "realisticLighting") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(realistic, forKey: "realisticLighting")
+            controller?.renderer.realisticGlass = realistic
+            glow = nil
+            needsDisplay = true
+            onRealisticChange?()
+        }
+    }
+    var onRealisticChange: (() -> Void)?
+    /// Light the picture currently casts on the bezel (smoothed), nil when dark.
+    private var glow: SIMD3<Float>?
     var finish: Finish { skin.finishes[min(finishIndex, skin.finishes.count - 1)] }
     /// Lets the window adopt a new skin's proportions.
     var onSkinChange: ((_ old: TVSkin, _ new: TVSkin) -> Void)?
@@ -93,9 +113,12 @@ final class TVBodyView: NSView {
 
     override func layout() {
         super.layout()
-        scale = min(bounds.width / design.width, bounds.height / design.height)
-        offset = CGPoint(x: (bounds.width - design.width * scale) / 2,
-                         y: (bounds.height - design.height * scale) / 2)
+        // The shadow margin only matters in a window; full screen uses the cabinet's own size.
+        let p = fullScreen ? NSEdgeInsetsZero : CabinetLighting.pad
+        let total = NSSize(width: skin.design.width + p.left + p.right, height: skin.design.height + p.top + p.bottom)
+        scale = min(bounds.width / total.width, bounds.height / total.height)
+        offset = CGPoint(x: (bounds.width - total.width * scale) / 2 + p.left * scale,
+                         y: (bounds.height - total.height * scale) / 2 + p.top * scale)   // flipped: top margin
         if pictureOnly {
             let h = min(bounds.height, bounds.width * 3 / 4)
             let w = h * 4 / 3
@@ -120,6 +143,11 @@ final class TVBodyView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        // Glow updates mark just thin strips; don't repaint more than was asked for.
+        var rects: UnsafePointer<NSRect>?
+        var count = 0
+        getRectsBeingDrawn(&rects, count: &count)
+        if let rects, count > 0 { ctx.clip(to: Array(UnsafeBufferPointer(start: rects, count: count))) }
         if fullScreen {
             NSColor.black.setFill()
             bounds.fill()
@@ -138,8 +166,62 @@ final class TVBodyView: NSView {
             st.brightness = c.brightness
             st.saturation = c.saturation
         }
+        let layers = realistic ? CabinetLighting.layers(for: skin) : nil
+        if let layers, !fullScreen {
+            let p = CabinetLighting.pad
+            drawImage(layers.shadow, in: NSRect(x: -p.left, y: -p.top, width: design.width, height: design.height), ctx)
+        }
         skin.draw(finish, st)
+        if let layers {
+            let r = NSRect(origin: .zero, size: skin.design)
+            ctx.saveGState(); ctx.setBlendMode(.softLight); drawImage(layers.texture, in: r, ctx); ctx.restoreGState()
+            drawImage(layers.light, in: r, ctx)
+            if let g = glow, g.max() > 0.01 {
+                // The picture's light on the bezel: add its colour through the ring mask
+                ctx.saveGState()
+                flip(r, ctx)
+                ctx.clip(to: CGRect(origin: .zero, size: r.size), mask: layers.glowRing)
+                ctx.setBlendMode(.plusLighter)
+                let s: CGFloat = 0.22   // faint: about a tenth of the picture's light at the very edge
+                ctx.setFillColor(red: CGFloat(g.x) * s, green: CGFloat(g.y) * s, blue: CGFloat(g.z) * s, alpha: 1)
+                ctx.fill(CGRect(origin: .zero, size: r.size))
+                ctx.restoreGState()
+            }
+        }
         ctx.restoreGState()
+    }
+
+    /// Our context is flipped (y down); images and masks are y-up.
+    private func flip(_ r: NSRect, _ ctx: CGContext) {
+        ctx.translateBy(x: r.minX, y: r.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+    }
+
+    private func drawImage(_ img: CGImage, in r: NSRect, _ ctx: CGContext) {
+        ctx.saveGState()
+        flip(r, ctx)
+        ctx.interpolationQuality = .high
+        ctx.draw(img, in: CGRect(origin: .zero, size: r.size))
+        ctx.restoreGState()
+    }
+
+    /// Called a few times a second with the picture's average light; eases toward it and
+    /// redraws just the bezel around the glass when it changes visibly.
+    func updateGlow(_ light: SIMD3<Float>?) {
+        guard realistic, !pictureOnly else { if glow != nil { glow = nil; needsDisplay = true }; return }
+        let target = light ?? .zero
+        let current = glow ?? .zero
+        let next = current + (target - current) * 0.6
+        guard simd_reduce_max(simd_abs(next - current)) > 0.012 || (glow == nil) != (light == nil) else { return }
+        glow = light == nil && next.max() < 0.01 ? nil : next
+        // Only the bezel strips around the glass change (the glass itself is the Metal view).
+        let s = skin.screenRect, m: CGFloat = 30
+        for r in [NSRect(x: s.minX - m, y: s.minY - m, width: s.width + 2 * m, height: m),
+                  NSRect(x: s.minX - m, y: s.maxY, width: s.width + 2 * m, height: m),
+                  NSRect(x: s.minX - m, y: s.minY, width: m, height: s.height),
+                  NSRect(x: s.maxX, y: s.minY, width: m, height: s.height)] {
+            setNeedsDisplay(toView(r).insetBy(dx: -1, dy: -1))
+        }
     }
 
     // MARK: Mouse
