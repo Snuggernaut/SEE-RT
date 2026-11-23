@@ -476,7 +476,13 @@ final class TVController {
     private func tick() {
         if let player, renderer.source == .video, isPoweredOn {
             let st = player.state
-            if st == libvlc_Ended {
+            let isWeb = hasMedia && !playlist[index].isFileURL
+            if isWeb, st == libvlc_Error || (st == libvlc_Ended && renderer.videoAspect == 0) {
+                // The site refused the stream before any picture arrived.
+                showNoSignal()
+                player.stop()
+                reportWebFailure(.failed("The site refused to send the video (it may be blocking outside players right now)."))
+            } else if st == libvlc_Ended {
                 if index < playlist.count - 1 { index += 1; playCurrent() } else { goIdle() }
             } else if st == libvlc_Error {
                 showNoSignal()

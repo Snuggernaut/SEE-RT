@@ -53,9 +53,13 @@ struct WebStream: Sendable {
             return .success(WebStream(video: page.absoluteString, title: name.isEmpty ? (page.host ?? "STREAM") : name))
         }
         guard let tool = ytdlpPath() else { return .failure(.notInstalled) }
-        // Up to 720p (the CRT look can't show more), preferring H.264 + stereo AAC, which decode cheaply.
-        let format = "bv*[height<=720][vcodec^=avc1]+ba[ext=m4a][audio_channels<=2]/bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]"
-            + "/bv*[height<=720]+ba/b[height<=720]/b"
+        // Up to 720p (the CRT look can't show more), preferring H.264, which decodes cheaply.
+        // HLS (m3u8) streams first: YouTube often refuses plain downloads of its https streams
+        // to anything but its own player (HTTP 403), but serves HLS to players like ours.
+        let format = "bv*[height<=720][vcodec^=avc1][protocol^=m3u8]+ba[protocol^=m3u8]"
+            + "/bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]"
+            + "/b[height<=720][protocol^=m3u8]"
+            + "/bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b"
         let args = ["-J", "--no-playlist", "--no-warnings", "--no-progress", "-f", format, "--", page.absoluteString]
 
         return await withCheckedContinuation { cont in
