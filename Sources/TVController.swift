@@ -171,7 +171,7 @@ final class TVController {
         renderer.source = .snow
         let token = tuneToken
         Task { @MainActor [weak self] in
-            let result = await WebStream.resolve(page)
+            let result = await WebStream.resolve(page, signIn: WebStream.signInBrowser)
             guard let self, token == self.tuneToken else { return }   // user changed channel meanwhile
             self.tuning = false
             switch result {
@@ -197,8 +197,20 @@ final class TVController {
             a.informativeText = "yt-dlp is a free tool that finds the video stream behind a YouTube (or other site) link. "
                 + WebStream.installHint
         case .failed(let msg):
+            FileHandle.standardError.write(Data("yt-dlp: \(msg)\n".utf8))
             a.messageText = "Couldn't tune in to that link"
-            a.informativeText = msg + "\n\nIf YouTube links that used to work have stopped, update yt-dlp by running:  brew upgrade yt-dlp"
+            let name = WebStream.signInBrowsers.first { $0.id == WebStream.signInBrowser }?.name
+            if let name, WebStream.isBlockedSignIn(msg) {
+                AppDelegate.showFullDiskAccessHelp(browser: name, for: bodyView?.window)
+                return
+            } else if WebStream.isBotCheck(msg) {
+                a.messageText = "YouTube wants to confirm you're not a bot"
+                a.informativeText = name == nil
+                    ? "YouTube is asking for a signed-in viewer. Sign in to YouTube in your web browser, then choose that browser in File ▸ YouTube Sign-In and try the link again."
+                    : "SEE-RT used your \(name!) sign-in, but YouTube still refused. Make sure you're signed in to youtube.com in \(name!) (open a video there once), then try again. If macOS asked to let yt-dlp use \"\(name!) Safe Storage\", it needs Allow."
+            } else {
+                a.informativeText = msg + "\n\nIf YouTube links that used to work have stopped, update yt-dlp by running:  brew upgrade yt-dlp"
+            }
         }
         if let w = bodyView?.window { a.beginSheetModal(for: w) } else { a.runModal() }
     }

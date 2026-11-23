@@ -82,6 +82,13 @@ The screen shows snow and **TUNING…** for a few seconds while the link is look
 
 Links straight to a video file or stream (for example ending in `.mp4` or `.m3u8`) play without yt-dlp.
 
+**"Sign in to confirm you're not a bot":** YouTube sometimes refuses requests that don't come from a signed-in viewer. To fix it:
+1. Sign in to YouTube in your web browser (Brave, Chrome, Firefox, Edge, Safari and others work).
+2. In SEE-RT, choose **File ▸ YouTube Sign-In** and pick that browser.
+3. macOS keeps browsers' data private, so SEE-RT will ask for **Full Disk Access**. Click **Open Settings**, turn on SEE-RT, then quit and reopen it. For Chromium-based browsers, macOS also asks once whether to allow access to "*Browser* Safe Storage". Click **Always Allow**.
+
+SEE-RT passes the sign-in to yt-dlp only when you play a link. Choosing **Off** stops it. After installing a new version of SEE-RT, you may need to turn Full Disk Access off and on again.
+
 Please respect the terms of the sites you watch.
 
 **Menus:**

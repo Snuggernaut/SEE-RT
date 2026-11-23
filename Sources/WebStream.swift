@@ -17,6 +17,39 @@ struct WebStream: Sendable {
 
     static let installHint = "Install it with Homebrew by running:  brew install yt-dlp\n\nIf YouTube links stop working later, update it with:  brew upgrade yt-dlp"
 
+    /// Browsers yt-dlp can borrow a YouTube sign-in from (its name for each, menu name, app id).
+    /// Signed-in requests get past YouTube's "confirm you're not a bot" check.
+    /// `data` is where the browser keeps its sign-ins, relative to ~/Library.
+    static let signInBrowsers: [(id: String, name: String, bundleID: String, data: String)] = [
+        ("brave", "Brave", "com.brave.Browser", "Application Support/BraveSoftware/Brave-Browser"),
+        ("chrome", "Chrome", "com.google.Chrome", "Application Support/Google/Chrome"),
+        ("firefox", "Firefox", "org.mozilla.firefox", "Application Support/Firefox"),
+        ("edge", "Edge", "com.microsoft.edgemac", "Application Support/Microsoft Edge"),
+        ("vivaldi", "Vivaldi", "com.vivaldi.Vivaldi", "Application Support/Vivaldi"),
+        ("opera", "Opera", "com.operasoftware.Opera", "Application Support/com.operasoftware.Opera"),
+        ("chromium", "Chromium", "org.chromium.Chromium", "Application Support/Chromium"),
+        ("safari", "Safari", "com.apple.Safari", "Containers/com.apple.Safari/Data/Library/Cookies")]
+    static let signInKey = "youtubeSignInBrowser"
+    /// The chosen browser's yt-dlp name, or nil for no sign-in.
+    static var signInBrowser: String? {
+        get { UserDefaults.standard.string(forKey: signInKey) }
+        set { UserDefaults.standard.set(newValue, forKey: signInKey) }
+    }
+
+    /// macOS guards other apps' data; without Full Disk Access, SEE-RT (and yt-dlp, which it
+    /// starts) can't open the browser's folder.
+    static func canReadSignIn(_ id: String) -> Bool {
+        guard let b = signInBrowsers.first(where: { $0.id == id }) else { return false }
+        let lib = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library").path
+        return (try? FileManager.default.contentsOfDirectory(atPath: lib + "/" + b.data)) != nil
+    }
+    static func isBlockedSignIn(_ msg: String) -> Bool {
+        msg.contains("cookies database") || msg.contains("Operation not permitted")
+    }
+
+    /// YouTube's bot check: the fix is a browser sign-in.
+    static func isBotCheck(_ msg: String) -> Bool { msg.contains("not a bot") || msg.contains("Sign in to confirm") }
+
     /// Apps opened from the Finder don't get the shell's PATH, so look in the usual places.
     static func ytdlpPath() -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -47,7 +80,7 @@ struct WebStream: Sendable {
     }
 
     /// Runs off the main thread; takes a few seconds for YouTube.
-    static func resolve(_ page: URL) async -> Result<WebStream, Failure> {
+    static func resolve(_ page: URL, signIn browser: String? = nil) async -> Result<WebStream, Failure> {
         if isDirectMedia(page) {
             let name = page.deletingPathExtension().lastPathComponent.removingPercentEncoding ?? page.lastPathComponent
             return .success(WebStream(video: page.absoluteString, title: name.isEmpty ? (page.host ?? "STREAM") : name))
@@ -60,7 +93,9 @@ struct WebStream: Sendable {
             + "/bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]"
             + "/b[height<=720][protocol^=m3u8]"
             + "/bv*[height<=720][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]/b"
-        let args = ["-J", "--no-playlist", "--no-warnings", "--no-progress", "-f", format, "--", page.absoluteString]
+        var args = ["-J", "--no-playlist", "--no-warnings", "--no-progress", "-f", format]
+        if let browser { args += ["--cookies-from-browser", browser] }
+        args += ["--", page.absoluteString]
 
         return await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {

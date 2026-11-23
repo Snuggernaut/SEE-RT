@@ -106,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                             Cabinet.brand = String(cmd.dropFirst(6)).replacingOccurrences(of: "_", with: " ")
                             self.window.contentView?.needsDisplay = true
                         }
+                        if cmd.hasPrefix("signin=") { let v = String(cmd.dropFirst(7)); WebStream.signInBrowser = v == "off" ? nil : v }
                         if cmd.hasPrefix("url="), let u = WebStream.url(from: String(cmd.dropFirst(4))) { c.openWeb(u) }
                         if cmd.hasPrefix("seek="), let v = Double(cmd.dropFirst(5)) { c.seek(by: v) }
                         if cmd.hasPrefix("width="), let w = Double(cmd.dropFirst(6)) { self.setWidth(CGFloat(w)) }
@@ -177,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         file.addItem(item("Open…", #selector(openFile), "o"))
         let openURL = item("Open URL…", #selector(openURL), "O")   // ⇧⌘O
         file.addItem(openURL)
+        file.addItem(signInMenu())
         file.addItem(item("Save Snapshot to Desktop", #selector(saveSnapshot), "s"))
         file.addItem(.separator())
         file.addItem(item("Close", #selector(closeWindow), "w"))
@@ -266,6 +268,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.mainMenu = main
     }
 
+    /// File ▸ YouTube Sign-In: Off, or one of the installed browsers yt-dlp can read a sign-in from.
+    private func signInMenu() -> NSMenuItem {
+        let m = NSMenu(title: "YouTube Sign-In")
+        let off = item("Off", #selector(setSignIn(_:)), "")
+        m.addItem(off)
+        m.addItem(.separator())
+        for b in WebStream.signInBrowsers where NSWorkspace.shared.urlForApplication(withBundleIdentifier: b.bundleID) != nil {
+            let i = item("Use \(b.name) Sign-In", #selector(setSignIn(_:)), "")
+            i.representedObject = b.id
+            m.addItem(i)
+        }
+        let holder = NSMenuItem(title: "YouTube Sign-In", action: nil, keyEquivalent: "")
+        holder.submenu = m
+        return holder
+    }
+
+    @objc private func setSignIn(_ sender: NSMenuItem) {
+        let id = sender.representedObject as? String
+        WebStream.signInBrowser = id
+        if let id, !WebStream.canReadSignIn(id) {
+            Self.showFullDiskAccessHelp(browser: sender.title.replacingOccurrences(of: "Use ", with: "")
+                .replacingOccurrences(of: " Sign-In", with: ""), for: window)
+        }
+    }
+
+    /// macOS keeps browsers' data private; reading a sign-in needs Full Disk Access, which only the user can grant.
+    static func showFullDiskAccessHelp(browser: String, for window: NSWindow?) {
+        let a = NSAlert()
+        a.messageText = "Allow SEE-RT to read your \(browser) sign-in"
+        a.informativeText = "macOS keeps each browser's data private, so SEE-RT needs Full Disk Access to borrow your YouTube sign-in from \(browser).\n\n"
+            + "1. Click Open Settings.\n2. Turn on SEE-RT in the list (use + to add it from Applications if it isn't there).\n3. Quit and reopen SEE-RT.\n\n"
+            + "SEE-RT only passes the sign-in to yt-dlp for the links you play. After updating SEE-RT you may need to turn it off and on again."
+        a.addButton(withTitle: "Open Settings")
+        a.addButton(withTitle: "Not Now")
+        let open = {
+            if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") { NSWorkspace.shared.open(u) }
+        }
+        if let window { a.beginSheetModal(for: window) { if $0 == .alertFirstButtonReturn { open() } } }
+        else if a.runModal() == .alertFirstButtonReturn { open() }
+    }
+
     private func item(_ title: String, _ action: Selector, _ key: String) -> NSMenuItem {
         let i = NSMenuItem(title: title, action: action, keyEquivalent: key)
         i.target = self
@@ -313,6 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case #selector(chooseSkin(_:)): item.state = Skins.all.firstIndex { $0.id == body?.skin.id } == item.tag ? .on : .off
         case #selector(chooseFinish(_:)): item.state = body?.finishIndex == item.tag ? .on : .off
         case #selector(toggleCabinet): item.state = (body?.showCabinet ?? true) ? .on : .off
+        case #selector(setSignIn(_:)): item.state = WebStream.signInBrowser == item.representedObject as? String ? .on : .off
         case #selector(toggleRealistic): item.state = (body?.realistic ?? true) ? .on : .off
         case #selector(setSize(_:)), #selector(bigger), #selector(smaller), #selector(fitToScreen), #selector(minimize):
             return !isFullScreen
