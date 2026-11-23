@@ -54,8 +54,8 @@ struct WebStream: Sendable {
         }
         guard let tool = ytdlpPath() else { return .failure(.notInstalled) }
         // Up to 720p (the CRT look can't show more), preferring H.264, which decodes cheaply.
-        // HLS (m3u8) streams first: YouTube often refuses plain downloads of its https streams
-        // to anything but its own player (HTTP 403), but serves HLS to players like ours.
+        // HLS (m3u8) first: YouTube refuses its plain https stream addresses to other players (HTTP 403)
+        // but serves HLS. Separate HLS video and audio are paired in a small master playlist (see parse).
         let format = "bv*[height<=720][vcodec^=avc1][protocol^=m3u8]+ba[protocol^=m3u8]"
             + "/bv*[height<=720][protocol^=m3u8]+ba[protocol^=m3u8]"
             + "/b[height<=720][protocol^=m3u8]"
@@ -106,6 +106,13 @@ struct WebStream: Sendable {
             // audio streams leave it empty, and skipping them meant silent playback.
             let audio = parts.first { ($0["vcodec"] as? String ?? "none") == "none" && ($0["url"] as? String) != (video["url"] as? String) }
             if let v = video["url"] as? String {
+                // HLS video + HLS audio: their timestamps don't line up when the audio is added as a
+                // separate track (the picture never starts), so pair them in one master playlist,
+                // the standard HLS way, and play that as a single stream.
+                if let audio, let a = audio["url"] as? String,
+                   isHLS(video), isHLS(audio), let master = writeMasterPlaylist(video: video, videoURL: v, audioURL: a) {
+                    return .success(WebStream(video: master, title: title, userAgent: agent(video), isLive: live))
+                }
                 return .success(WebStream(video: v, audio: audio?["url"] as? String, title: title,
                                           userAgent: agent(video), isLive: live))
             }
@@ -114,5 +121,24 @@ struct WebStream: Sendable {
             return .success(WebStream(video: v, title: title, userAgent: agent(json), isLive: live))
         }
         return .failure(.failed("yt-dlp didn't find a playable video at that link."))
+    }
+
+    private static func isHLS(_ f: [String: Any]) -> Bool { (f["protocol"] as? String ?? "").hasPrefix("m3u8") }
+
+    /// Writes a master playlist naming the video stream and its audio rendition; returns its file URL.
+    private static func writeMasterPlaylist(video: [String: Any], videoURL: String, audioURL: String) -> String? {
+        let w = video["width"] as? Int ?? 1280, h = video["height"] as? Int ?? 720
+        let vcodec = video["vcodec"] as? String ?? "avc1.4D401F"
+        let text = """
+            #EXTM3U
+            #EXT-X-INDEPENDENT-SEGMENTS
+            #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="audio",DEFAULT=YES,AUTOSELECT=YES,URI="\(audioURL)"
+            #EXT-X-STREAM-INF:BANDWIDTH=2000000,CODECS="\(vcodec),mp4a.40.2",RESOLUTION=\(w)x\(h),AUDIO="aud"
+            \(videoURL)
+
+            """
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("SEE-RT-\(UUID().uuidString).m3u8")
+        do { try text.write(to: url, atomically: true, encoding: .utf8) } catch { return nil }
+        return url.absoluteString
     }
 }

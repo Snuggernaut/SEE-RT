@@ -125,7 +125,11 @@ final class VLCPlayer {
         libvlc_media_player_stop(mp)
         guard let m = libvlc_media_new_location(instance, s.video) else { return }
         if let a = s.audio { _ = libvlc_media_slaves_add(m, libvlc_media_slave_type_audio, 4, a) }
-        if let ua = s.userAgent { libvlc_media_add_option(m, ":http-user-agent=\(ua)") }
+        if let ua = s.userAgent {
+            // Engine-wide, so the separate audio track's requests carry it too (YouTube answers 403 without it).
+            libvlc_set_user_agent(instance, "SEE-RT", ua)
+            libvlc_media_add_option(m, ":http-user-agent=\(ua)")
+        }
         libvlc_media_add_option(m, ":network-caching=1500")
         start(m)
     }
