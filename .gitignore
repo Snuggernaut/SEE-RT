@@ -1,0 +1,4 @@
+# Build output (the app bundle includes ~90 MB of VLC's engine, copied in by build.sh)
+build/
+dist/
+.DS_Store

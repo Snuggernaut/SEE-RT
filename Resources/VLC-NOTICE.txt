@@ -1,0 +1,10 @@
+SEE-RT is free software, released under the GNU General Public License,
+version 2 or (at your option) any later version.
+
+SEE-RT includes the playback engine from VLC media player 3.0.24 (libvlc,
+libvlccore and VLC's plugins), made by VideoLAN and the VLC authors.
+libvlc and libvlccore are licensed under the GNU Lesser General Public License,
+version 2.1 or later; some plugins are under the GNU General Public License.
+
+VLC 3.0.24 source code: https://download.videolan.org/pub/videolan/vlc/3.0.24/
+VLC is a trademark of VideoLAN. SEE-RT is not affiliated with VideoLAN.
